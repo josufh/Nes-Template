@@ -45,6 +45,7 @@ CLEARMEMORY:
     CPX #$00
     BNE CLEARMEMORY
 
+    SPRITEX = $0203
 :
     BIT $2002
     BPL :-
@@ -129,16 +130,38 @@ LOADBACKGROUNDPALETTEDATA:
     LDA #%00011110
     STA $2001
 
+READCONTROLLER:
+    LDA #$01
+    STA $4016
+    LDA #$00
+    STA $4016
+
+    LDA $4016 ; Player 1 - A
+    AND #%00000001
+    BEQ ENDREADING
+
+    LDA SPRITEX
+    CLC
+    ADC #$01
+    STA SPRITEX
+
+ENDREADING:
+    RTS
+
+
 LOOP:
     JMP LOOP
 
 NMI:
     LDA #$02
     STA $4014
+
+    JSR READCONTROLLER
+
     RTI
 
 PALETTEDATA:
-	.byte $0F,$21,$15,$30, $0F,$06,$15,$36, $0F,$0F,$0F,$0F, $0F,$0F,$0F,$0F
+	.byte $0F,$0F,$0F,$0F, $0F,$06,$15,$36, $0F,$0F,$0F,$0F, $0F,$0F,$0F,$0F
 	.byte $0F,$21,$15,$30, $0F,$0F,$0F,$0F, $0F,$0F,$0F,$0F, $0F,$0F,$0F,$0F
 
 SPRITEDATA:
