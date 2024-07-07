@@ -11,39 +11,17 @@
 
 .segment "STARTUP"                                  ; STARTUP segment is where the code is placed
 RESET:                  ; RESET is triggered when the console is turned on or reset
-    SEI                 ; Disables interrupts from happening
-    CLD                 ; Clears decimal mode, not useful
-    LDX #$40
-    STX $4017           ; Disable APU IRQ
-    LDX #$00
-    STX $4010           ; Disable PCM
 
-    LDX #$FF
-    TXS                 ; Initializa SR at $FF
-
-    LDX #$00            
-    STX $2000
-    STX $2001           ; Clear the PPU Controller and Mask
-
-:
-    BIT $2002           ; $2002 7th bit is on 0 if not in vblank
-    BPL :-              ; check if not in vblank
-
-    TXA
-CLEARMEMORY:
-    STA $0000, X
-    STA $0100, X
-    STA $0300, X
-    STA $0400, X
-    STA $0500, X
-    STA $0600, X
-    STA $0700, X
-    LDA #$FF
-    STA $0200, X
-    LDA #$00
-    INX
-    CPX #$00
-    BNE CLEARMEMORY
+    RAM_SPRITES = $0200
+    PPUCTRL = $2000
+    PPUMASK = $2001
+    PPUSTATUS = $2002
+    PPUSCROLL = $2005
+    PPUADDR = $2006
+    PPUDATA = $2007
+    DMCPCM = $4010
+    OAMDAM = $4014
+    APUFRAMECOUNTER = $4017
 
     PLAYER_SPRITE1_Y = $0200
     PLAYER_SPRITE1_X = $0203
@@ -57,22 +35,49 @@ CLEARMEMORY:
     PLAYER_SPRITE5_X = $0213
     PLAYER_SPRITE6_Y = $0214
     PLAYER_SPRITE6_X = $0217
-:
-    BIT $2002
-    BPL :-
 
-    LDA #$02
-    STA $4014
-    NOP
+    SEI                     ; Disables interrupts from happening
+    CLD                     ; Clears decimal mode, not useful
+    LDX #$40
+    STX APUFRAMECOUNTER     ; Disable APU IRQ
+    LDX #$00
+    STX DMCPCM               ; Disable PCM
+
+    LDX #$FF
+    TXS                     ; Initializa SR at $FF
+
+    LDX #$00            
+    STX PPUCTRL
+    STX PPUMASK             ; Clear the PPU Controller and Mask
+
+:
+    BIT PPUSTATUS           
+    BPL :-                  ; Wait for VBLANK
+
+    TXA
+CLEARMEMORY:
+    STA $0000, X
+    STA $0100, X
+    STA $0300, X
+    STA $0400, X
+    STA $0500, X
+    STA $0600, X
+    STA $0700, X
+    LDA #$FF
+    STA RAM_SPRITES, X
+    LDA #$00
+    INX
+    CPX #$00
+    BNE CLEARMEMORY
 
     LDA #$3F
-    STA $2006
+    STA PPUADDR
     LDA #$00
-    STA $2006
+    STA PPUADDR
     LDX #$00
 LOADPALETTES:
     LDA PALETTEDATA, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$20
     BNE LOADPALETTES
@@ -80,66 +85,66 @@ LOADPALETTES:
     LDX #$00
 LOADSPRITES:
     LDA SPRITEDATA, X
-    STA $0200, X
+    STA RAM_SPRITES, X
     INX
     CPX #$30
     BNE LOADSPRITES
 
 LOADBACKGROUND:
-    LDA $2002
+    LDA PPUSTATUS
     LDA #$20
-    STA $2006
+    STA PPUADDR
     LDA #$00
-    STA $2006
+    STA PPUADDR
     LDX #$00
 LOADBACKGROUNDP1:
     LDA BACKGROUNDDATA, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$00
     BNE LOADBACKGROUNDP1
 LOADBACKGROUNDP2:
     LDA BACKGROUNDDATA+256, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$00
     BNE LOADBACKGROUNDP2
 LOADBACKGROUNDP3:
     LDA BACKGROUNDDATA+512, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$00
     BNE LOADBACKGROUNDP3
 LOADBACKGROUNDP4:
     LDA BACKGROUNDDATA+768, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$F0
     BNE LOADBACKGROUNDP4
 
-    LDA $2002
+    LDA PPUSTATUS
     LDA #$23
-    STA $2006
+    STA PPUADDR
     LDA #$C0
-    STA $2006
+    STA PPUADDR
     LDX #$00
 LOADBACKGROUNDPALETTEDATA:
     LDA BACKGROUNDPALETTEDATA, X
-    STA $2007
+    STA PPUDATA
     INX
     CPX #$80
     BNE LOADBACKGROUNDPALETTEDATA
 
     LDA #$00
-    STA $2005
-    STA $2005
+    STA PPUSCROLL
+    STA PPUSCROLL
 
     CLI
 
-    LDA #%10010000
-    STA $2000
+    LDA #%10010000                  ; 7-bit → generate nmi interrupt; 4-bit → which table to use for background
+    STA PPUCTRL
     LDA #%00011110
-    STA $2001
+    STA PPUMASK
 
 READCONTROLLER:
     LDA #$01
@@ -148,9 +153,24 @@ READCONTROLLER:
     STA $4016
 
     LDA $4016 ; Player 1 - A
+    AND #%000000001
+    BEQ ENDREADINGA
+ENDREADINGA:
+
     LDA $4016 ; Player 1 - B
+    AND #%000000001
+    BEQ ENDREADINGB
+ENDREADINGB:
+
     LDA $4016 ; Player 1 - SELECT
+    AND #%000000001
+    BEQ ENDREADINGSEL
+ENDREADINGSEL:
+
     LDA $4016 ; Player 1 - START
+    AND #%000000001
+    BEQ ENDREADINGSTA
+ENDREADINGSTA:
 
     LDA $4016 ; Player 1 - UP
     AND #%000000001
@@ -239,10 +259,11 @@ LOOP:
     JMP LOOP
 
 NMI:
-    LDA #$02
-    STA $4014
-
     JSR READCONTROLLER
+
+    LDA #$02
+    STA OAMDAM              ; Refresh sprites
+    NOP
 
     RTI
 
